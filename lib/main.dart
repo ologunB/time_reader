@@ -1,10 +1,18 @@
 import 'dart:async';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
+import 'package:hive_flutter/hive_flutter.dart';
 import 'package:intl/intl.dart';
+import 'package:wakelock/wakelock.dart';
 
-void main() {
+Future<void> main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  if (!kIsWeb) await Wakelock.enable();
+  await Hive.initFlutter();
+  await Hive.openBox<dynamic>('kUserBox');
+
   runApp(const MyApp());
 }
 
@@ -29,7 +37,7 @@ class MyHomePage extends StatefulWidget {
   State<MyHomePage> createState() => _MyHomePageState();
 }
 
-class _MyHomePageState extends State<MyHomePage> {
+class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
   TextStyle style =
       const TextStyle(color: Color(0xff03fc0f), fontFamily: 'Schyler');
   DateTime now = DateTime.now();
@@ -37,13 +45,41 @@ class _MyHomePageState extends State<MyHomePage> {
   int diff = 0;
   Timer? mTimer;
 
+  static Box<dynamic> get _userBox => Hive.box<dynamic>('kUserBox');
+
   @override
   void initState() {
+    WidgetsBinding.instance.addObserver(this);
     Timer.periodic(const Duration(seconds: 1), (timer) {
       now = DateTime.now();
       setState(() {});
     });
+    doCalc();
+
     super.initState();
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+
+    super.dispose();
+  }
+
+  doCalc() {
+    int time = _userBox.get('time', defaultValue: now.millisecondsSinceEpoch);
+    diff = (time - now.millisecondsSinceEpoch) ~/ 1000;
+    if (diff > 0) {
+      startCounter();
+    } else {
+      diff = 0;
+    }
+    setState(() {});
+  }
+
+  @override
+  Future<void> didChangeAppLifecycleState(AppLifecycleState state) async {
+    doCalc();
   }
 
   @override
@@ -59,50 +95,62 @@ class _MyHomePageState extends State<MyHomePage> {
             child: Column(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
-                Text(
-                  DateFormat('EEE MMMM dd, yyy').format(now),
-                  style: style.copyWith(fontSize: 30.sp),
+                Padding(
+                  padding: EdgeInsets.symmetric(
+                      horizontal: MediaQuery.of(context).size.width / 4),
+                  child: FittedBox(
+                    fit: BoxFit.fitHeight,
+                    child: Text(
+                      DateFormat('EEE MMMM dd, yyy')
+                          .format(now)
+                          .replaceAll('1', ' 1'),
+                      style: style.copyWith(fontSize: 4430.sp),
+                    ),
+                  ),
                 ),
                 SizedBox(height: 15.h),
-                IntrinsicHeight(
-                  child: Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Align(
-                          alignment: Alignment.topLeft,
-                          child: timeAM(DateFormat('a').format(now))),
-                      Container(
-                          color: Colors.black,
-                          child: timeHR(DateFormat('hh:mm').format(now))),
-                      Align(
-                          alignment: Alignment.bottomRight,
-                          child: timeSEC(DateFormat(':ss').format(now))),
-                    ],
+                FittedBox(
+                  fit: BoxFit.fitHeight,
+                  child: IntrinsicHeight(
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Align(
+                            alignment: Alignment.topLeft,
+                            child: timeAM(DateFormat('a').format(now))),
+                        Container(
+                            color: Colors.black,
+                            child: timeHR(DateFormat('hh:mm')
+                                .format(now)
+                                .replaceAll('1', ' 1')
+                                .trim())),
+                        Align(
+                            alignment: Alignment.bottomRight,
+                            child: timeSEC(DateFormat(':ss')
+                                .format(now)
+                                .replaceAll('1', ' 1'))),
+                      ],
+                    ),
                   ),
                 ),
                 SizedBox(height: 10.h),
-                InkWell(
-                  onTap: () {
-                    chooseStart(context);
-                  },
-                  child: Text(
-                    formatCounter(),
-                    style: style.copyWith(fontSize: 80.sp),
+                Padding(
+                  padding: EdgeInsets.symmetric(
+                      horizontal: MediaQuery.of(context).size.width / 4),
+                  child: InkWell(
+                    onTap: () {
+                      chooseStart(context);
+                    },
+                    child: FittedBox(
+                      fit: BoxFit.fitHeight,
+                      child: Text(
+                        formatCounter(),
+                        style: style.copyWith(fontSize: 34232.sp),
+                      ),
+                    ),
                   ),
                 ),
                 SizedBox(height: 30.h),
-                Visibility(
-                  visible: diff == 0,
-                  maintainSize: true,
-                  maintainAnimation: true,
-                  maintainState: true,
-                  child: Row(
-                    mainAxisAlignment: MainAxisAlignment.end,
-                    children: [
-                      Icon(Icons.play_circle_outline, color: style.color)
-                    ],
-                  ),
-                )
               ],
             ),
           )),
@@ -118,7 +166,7 @@ class _MyHomePageState extends State<MyHomePage> {
     String sec = (a.inSeconds % 60).toString().length == 1
         ? '0${a.inSeconds % 60}'
         : '${a.inSeconds % 60}';
-    return '$hr$min:$sec';
+    return '$hr$min:$sec'.replaceAll('1', ' 1');
   }
 
   Future<void> chooseStart(BuildContext context) async {
@@ -147,18 +195,25 @@ class _MyHomePageState extends State<MyHomePage> {
         }
         startDate =
             startDate.add(Duration(hours: time.hour, minutes: time.minute));
+        _userBox.put('time', startDate.millisecondsSinceEpoch);
         diff = startDate.difference(now).inSeconds;
-        if (diff > 0) startCounter();
+        print('diff: $diff');
+        if (diff > 0) {
+          startCounter();
+        } else {
+          diff = 0;
+        }
         setState(() {});
       });
     });
   }
 
   startCounter() {
-    if (mTimer?.isActive ?? false) {
+    if (diff == 0) {
       mTimer?.cancel();
       setState(() {});
     } else {
+      if (mTimer?.isActive ?? false) mTimer?.cancel();
       mTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
         if (diff == 0) {
           mTimer?.cancel();
@@ -171,19 +226,21 @@ class _MyHomePageState extends State<MyHomePage> {
   }
 
   Widget timeAM(String a) {
-    return Padding(
+    return Container(
       padding: EdgeInsets.only(top: 8.h, right: 4.h),
       child: Text(
         a,
-        style: style.copyWith(fontSize: 50.sp, height: 1),
+        style: style.copyWith(fontSize: 440.sp, height: 1),
       ),
     );
   }
 
   Widget timeHR(String a) {
-    return Text(
-      a,
-      style: style.copyWith(fontSize: 100.sp, height: 1),
+    return Container(
+      child: Text(
+        a,
+        style: style.copyWith(fontSize: 1000.sp, height: .9),
+      ),
     );
   }
 
@@ -192,7 +249,7 @@ class _MyHomePageState extends State<MyHomePage> {
       padding: EdgeInsets.only(bottom: 8.h),
       child: Text(
         a,
-        style: style.copyWith(fontSize: 80.sp, height: 1),
+        style: style.copyWith(fontSize: 840.sp, height: 1),
       ),
     );
   }
